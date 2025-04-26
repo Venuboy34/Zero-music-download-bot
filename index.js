@@ -8,7 +8,7 @@ const path = require('path');
 const os = require('os');
 
 // Bot token
-const bot = new Telegraf(process.env.BOT_TOKEN || "8196295486:AAHPUAfRHv5KIjTc128ZsJbXSH4xwXECCg4");
+const bot = new Telegraf(process.env.BOT_TOKEN || "7657837342:AAE29dsv6Vcqi3hUhs8D7VCBBxBgRxBsa6w");
 
 // Function to create temp directory if it doesn't exist
 const tempDir = path.join(os.tmpdir(), 'music-bot');
