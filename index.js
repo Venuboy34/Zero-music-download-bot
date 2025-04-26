@@ -1,20 +1,9 @@
 const { Telegraf } = require('telegraf');
-const ytdl = require('ytdl-core');
-const yts = require('yt-search');
-const fs = require('fs');
 const axios = require('axios');
-const ffmpeg = require('fluent-ffmpeg');
-const path = require('path');
-const os = require('os');
+const yts = require('yt-search');
 
-// Bot token
+// Bot token from environment variable or hardcoded
 const bot = new Telegraf(process.env.BOT_TOKEN || "7657837342:AAE29dsv6Vcqi3hUhs8D7VCBBxBgRxBsa6w");
-
-// Function to create temp directory if it doesn't exist
-const tempDir = path.join(os.tmpdir(), 'music-bot');
-if (!fs.existsSync(tempDir)) {
-  fs.mkdirSync(tempDir, { recursive: true });
-}
 
 // Start command
 bot.start(async (ctx) => {
@@ -25,13 +14,13 @@ bot.start(async (ctx) => {
     await ctx.replyWithPhoto(
       { url: welcomeImageUrl },
       { 
-        caption: `🎧 Hello ${name}!\n\nSend me a music name and I'll find it on YouTube, extract the audio, and send it back to you as MP3!\n\n🔍 Just type something like:\nBeliever by Imagine Dragons`,
+        caption: `🎧 Hello ${name}!\n\nSend me a music name and I'll find it on YouTube and send it back to you as MP3!\n\n🔍 Just type something like:\nBeliever by Imagine Dragons`,
         parse_mode: "Markdown"
       }
     );
   } catch (error) {
     console.error("Error sending welcome message:", error);
-    await ctx.reply(`🎧 Hello ${name}!\n\nSend me a music name and I'll find it on YouTube, extract the audio, and send it back to you as MP3!`);
+    await ctx.reply(`🎧 Hello ${name}!\n\nSend me a music name and I'll find it on YouTube and send it back to you as MP3!`);
   }
 });
 
@@ -45,83 +34,48 @@ bot.on('text', async (ctx) => {
   const statusMsg = await ctx.reply(`🔎 Searching for: ${searchQuery}...`);
   
   try {
-    // Search for video
+    // Search for video using yt-search
     const searchResults = await yts(searchQuery);
     if (!searchResults.videos.length) {
       return ctx.reply("⚠️ No results found for your query.");
     }
     
     const video = searchResults.videos[0];
-    const videoUrl = video.url;
+    const videoId = video.videoId;
     const title = video.title;
     const artist = video.author.name;
     const thumbnailUrl = video.thumbnail;
+    const duration = video.seconds; // Duration in seconds
     
-    await ctx.reply(`✅ Found: "${title}" by ${artist}\n\n⬇️ Downloading audio...`);
+    await ctx.reply(`✅ Found: "${title}" by ${artist}\n\n⬇️ Processing audio...`);
     
-    // File paths
-    const audioPath = path.join(tempDir, `${ctx.from.id}_${Date.now()}.mp3`);
-    const thumbPath = path.join(tempDir, `${ctx.from.id}_${Date.now()}_thumb.jpg`);
-    
-    // Download thumbnail
-    if (thumbnailUrl) {
-      const response = await axios({
-        method: 'GET',
-        url: thumbnailUrl,
-        responseType: 'stream'
-      });
-      
-      const writer = fs.createWriteStream(thumbPath);
-      response.data.pipe(writer);
-      
-      await new Promise((resolve, reject) => {
-        writer.on('finish', resolve);
-        writer.on('error', reject);
-      });
+    // Check if video is too long (>10 minutes might be problematic)
+    if (duration > 600) {
+      return ctx.reply("⚠️ Sorry, the video is too long (>10 minutes). Please try a shorter one.");
     }
     
-    // Download and convert audio
-    const stream = ytdl(videoUrl, { 
-      quality: 'highestaudio',
-      filter: 'audioonly'
-    });
+    // Use a public YouTube to MP3 API service instead of processing locally
+    const mp3Url = `https://yt-download.org/api/button/mp3/${videoId}`;
+    const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
     
-    await new Promise((resolve, reject) => {
-      ffmpeg(stream)
-        .audioBitrate(192)
-        .save(audioPath)
-        .on('end', resolve)
-        .on('error', (err) => {
-          console.error('FFmpeg error:', err);
-          reject(err);
-        });
-    });
-    
-    // Send audio file
-    await ctx.replyWithAudio(
-      { source: audioPath },
-      {
-        title: title,
-        performer: artist,
-        thumb: fs.existsSync(thumbPath) ? { source: thumbPath } : undefined,
-        caption: `🎶 ${title}\n👤 By: ${artist}\n\nEnjoy, ${name}!`,
-        parse_mode: "Markdown"
+    // Create a nice response with buttons
+    await ctx.reply(`🎵 *${title}*\n👤 By: ${artist}\n\nDownload your music using the link below:`, {
+      parse_mode: "Markdown",
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: "⬇️ Download MP3", url: mp3Url }
+          ],
+          [
+            { text: "🎬 Watch on YouTube", url: youtubeUrl }
+          ]
+        ]
       }
-    );
-    
-    // Clean up files
-    setTimeout(() => {
-      try {
-        if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
-        if (fs.existsSync(thumbPath)) fs.unlinkSync(thumbPath);
-      } catch (e) {
-        console.error('Error cleaning up files:', e);
-      }
-    }, 1000);
+    });
     
   } catch (error) {
     console.error("Error processing request:", error);
-    await ctx.reply("⚠️ Error: Couldn't find or download the music.");
+    await ctx.reply("⚠️ Error: Couldn't find or process the music request.");
   }
 });
 
